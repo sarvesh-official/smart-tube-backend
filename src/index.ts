@@ -13,6 +13,7 @@ const port = process.env.PORT || 5000;
 
 // Add these middleware to parse JSON and URL-encoded bodies
 dotenv.config()
+connectToDb();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -24,6 +25,5 @@ app.get("/api", (req, res) => {
 });
 
 app.listen(port, () => {
-    connectToDb();
     console.log(`Server running on port ${port}`);
 });
