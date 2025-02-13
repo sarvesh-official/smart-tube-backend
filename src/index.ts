@@ -19,7 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/youtube", youtubeRoute);
 app.use("/api/user", userRoute);
 
-app.use("/api", (req, res) => {
+app.get("/api", (req, res) => {
     res.send("Working!");
 });
 
