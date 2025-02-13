@@ -19,9 +19,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/youtube", youtubeRoute);
 app.use("/api/user", userRoute);
 
-// app.use("/api", (req, res) => {
-//     res.send("Working!");
-// });
+app.use("/api", (req, res) => {
+    res.send("Working!");
+});
 
 app.listen(port, () => {
     connectToDb();
