@@ -1,15 +1,14 @@
-import mongoose from "mongoose"
+import mongoose from "mongoose";
 
+export const connectToDb = async () => {
+  try {
+    const url = process.env.DATABASE_URL || " ";
 
-export const connectToDb = async() => {
-    try {
-        if (!process.env.DATABASE_URL) {
-            throw new Error("DATABASE_URL is not defined");
-        }
-        mongoose.connect(process.env.DATABASE_URL);
-        console.log("connect to db")
-    } catch (error) {
-        console.error('Database connection error:', error);
-        throw error;
-    }
-}
+    await mongoose.connect(url);
+
+    console.log("✅ MongoDB Connected Successfully");
+  } catch (error: any) {
+    console.error("❌ MongoDB Connection Failed:", error.message);
+    process.exit(1); // Exit process on failure
+  }
+};

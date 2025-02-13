@@ -11,9 +11,6 @@ const app = express();
 app.use(cors());
 const port = process.env.PORT || 5000;
 
-// Add these middleware to parse JSON and URL-encoded bodies
-dotenv.config()
-connectToDb();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -24,6 +21,11 @@ app.get("/api", (req, res) => {
     res.send("Working!");
 });
 
-app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+connectToDb().then(() => {
+    app.listen(port, () => {
+        console.log(`✅ Server running on port ${port}`);
+    });
+}).catch(err => {
+    console.error("❌ Database connection failed:", err);
+    process.exit(1); // Stop the process if DB connection fails
 });

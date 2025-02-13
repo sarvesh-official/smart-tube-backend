@@ -16,15 +16,13 @@ exports.connectToDb = void 0;
 const mongoose_1 = __importDefault(require("mongoose"));
 const connectToDb = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        if (!process.env.DATABASE_URL) {
-            throw new Error("DATABASE_URL is not defined");
-        }
-        mongoose_1.default.connect(process.env.DATABASE_URL);
-        console.log("connect to db");
+        const url = process.env.DATABASE_URL || " ";
+        yield mongoose_1.default.connect(url);
+        console.log("✅ MongoDB Connected Successfully");
     }
     catch (error) {
-        console.error('Database connection error:', error);
-        throw error;
+        console.error("❌ MongoDB Connection Failed:", error.message);
+        process.exit(1); // Exit process on failure
     }
 });
 exports.connectToDb = connectToDb;
