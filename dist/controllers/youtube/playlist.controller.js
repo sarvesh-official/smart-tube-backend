@@ -13,8 +13,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createPlaylist = exports.getPlaylist = void 0;
-const playlists_1 = __importDefault(require("../../model/playlists"));
 const googleapis_1 = require("googleapis");
+const playlists_1 = __importDefault(require("../../model/playlists"));
 const getPlaylist = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { session } = req.body;
@@ -24,8 +24,29 @@ const getPlaylist = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         }
         const playlists = yield playlists_1.default.findOne({ userEmail: session.user.email });
         if (!playlists) {
-            res.status(500).json("No playlists found");
-            return;
+            const youtube = googleapis_1.google.youtube({
+                version: 'v3',
+                auth: process.env.GOOGLE_API_KEY,
+                headers: {
+                    Authorization: `Bearer ${session.accessToken}`
+                }
+            });
+            // Fetch latest playlists from YouTube API
+            const response = yield youtube.playlists.list({
+                part: ['snippet'],
+                mine: true,
+                maxResults: 100,
+            });
+            // Create new playlists if they don't exist
+            const newPlaylists = yield playlists_1.default.create({
+                userEmail: session.user.email,
+                etag: response.data.etag,
+                playlists: response.data.items
+            });
+            res.status(201).json({
+                message: "Playlists created successfully",
+                data: newPlaylists
+            });
         }
         res.status(200).json({
             message: "Fetched all playlists",

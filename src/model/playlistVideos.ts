@@ -42,6 +42,6 @@ const PlaylistSchema = new mongoose.Schema({
   videos: [VideoSchema],
 });
 
-const Playlist = mongoose.model("PlaylistVideos", PlaylistSchema);
+const PlaylistVideos = mongoose.model("PlaylistVideos", PlaylistSchema);
 
-export default Playlist;
+export default PlaylistVideos;

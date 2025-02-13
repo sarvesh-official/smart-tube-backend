@@ -13,8 +13,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createPlaylistVideos = exports.getAllPlaylistVideos = exports.getPlaylistVideos = void 0;
-const playlist_1 = __importDefault(require("../../model/playlist"));
 const googleapis_1 = require("googleapis");
+const playlistVideos_1 = __importDefault(require("../../model/playlistVideos"));
 const getPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
@@ -27,7 +27,7 @@ const getPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, functi
             res.status(400).json({ error: "Playlist ID is required" });
             return;
         }
-        let playlist = yield playlist_1.default.findOne({
+        let playlist = yield playlistVideos_1.default.findOne({
             userEmail: session.user.email,
             playlistId: playlistId
         });
@@ -42,7 +42,7 @@ const getPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, functi
                 });
                 const response = yield youtube.playlistItems.list({
                     part: ['snippet'],
-                    playlistId: playlistId,
+                    playlistId: playlistId === "WL" ? "WL" : playlistId, // Support Watch Later
                     maxResults: 50
                 });
                 if (!response.data.items || response.data.items.length === 0) {
@@ -52,18 +52,15 @@ const getPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, functi
                     return;
                 }
                 // Create new playlist in database
-                playlist = yield playlist_1.default.create({
+                playlist = yield playlistVideos_1.default.create({
                     userEmail: session.user.email,
                     playlistId: playlistId,
                     videos: response.data.items
                 });
             }
             catch (error) {
-                // Handle YouTube API errors
                 if (((_a = error.response) === null || _a === void 0 ? void 0 : _a.status) === 404) {
-                    res.status(404).json({
-                        error: "Invalid playlist ID"
-                    });
+                    res.status(404).json({ error: "Invalid playlist ID" });
                     return;
                 }
                 throw error;
@@ -92,14 +89,67 @@ const getAllPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, fun
             res.status(401).json({ error: "Not authenticated" });
             return;
         }
-        // Fetch all playlists for the user
-        const playlists = yield playlist_1.default.find({ userEmail: session.user.email });
+        let playlists = yield playlistVideos_1.default.find({ userEmail: session.user.email });
+        // If no playlists are found, fetch them from YouTube
         if (!playlists || playlists.length === 0) {
-            res.status(404).json({ message: "No playlists found" });
-            return;
+            try {
+                const youtube = googleapis_1.google.youtube({
+                    version: 'v3',
+                    auth: process.env.GOOGLE_API_KEY,
+                    headers: {
+                        Authorization: `Bearer ${session.accessToken}`
+                    }
+                });
+                // Fetch user's playlists
+                const response = yield youtube.playlists.list({
+                    part: ['snippet'],
+                    mine: true,
+                    maxResults: 50
+                });
+                if (!response.data.items || response.data.items.length === 0) {
+                    res.status(404).json({ message: "No playlists found" });
+                    return;
+                }
+                // Store playlists in DB
+                for (const playlist of response.data.items) {
+                    yield playlistVideos_1.default.findOneAndUpdate({ userEmail: session.user.email, playlistId: playlist.id }, { $setOnInsert: { videos: [] } }, { upsert: true, new: true });
+                }
+                playlists = yield playlistVideos_1.default.find({ userEmail: session.user.email });
+            }
+            catch (error) {
+                console.error("Error fetching user's playlists:", error);
+                res.status(500).json({ message: "Error fetching playlists", error: error.message });
+                return;
+            }
         }
-        // Flatten all videos into a single array
-        const allVideos = playlists.flatMap(playlist => playlist.videos.map((video) => ({
+        const youtube = googleapis_1.google.youtube({
+            version: 'v3',
+            auth: process.env.GOOGLE_API_KEY,
+            headers: {
+                Authorization: `Bearer ${session.accessToken}`
+            }
+        });
+        // Fetch videos for playlists with no videos
+        for (const playlist of playlists) {
+            if (!playlist.videos || playlist.videos.length === 0) {
+                try {
+                    const videoResponse = yield youtube.playlistItems.list({
+                        part: ['snippet'],
+                        playlistId: playlist.playlistId,
+                        maxResults: 50
+                    });
+                    if (videoResponse.data.items && videoResponse.data.items.length > 0) {
+                        yield playlistVideos_1.default.findOneAndUpdate({ userEmail: session.user.email, playlistId: playlist.playlistId }, { videos: videoResponse.data.items });
+                    }
+                }
+                catch (error) {
+                    console.warn(`Failed to fetch videos for playlist ${playlist.playlistId}`, error);
+                }
+            }
+        }
+        // Fetch updated playlists
+        playlists = yield playlistVideos_1.default.find({ userEmail: session.user.email });
+        const allVideos = playlists.flatMap((playlist) => playlist.videos.map((video) => ({
             videoId: video.snippet.resourceId.videoId,
             title: video.snippet.title,
             description: video.snippet.description,
@@ -109,7 +159,7 @@ const getAllPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, fun
         })));
         res.status(200).json({
             message: "Fetched all videos successfully",
-            data: allVideos // Now returning a single array of all videos
+            data: allVideos
         });
     }
     catch (err) {
@@ -145,26 +195,19 @@ const createPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, fun
             playlistId: playlistId,
             maxResults: 50
         });
-        const existingPlaylist = yield playlist_1.default.findOne({
+        const existingPlaylist = yield playlistVideos_1.default.findOne({
             userEmail: session.user.email,
             playlistId: playlistId
         });
         if (existingPlaylist) {
-            const updatedPlaylist = yield playlist_1.default.findOneAndUpdate({
-                userEmail: session.user.email,
-                playlistId: playlistId
-            }, { videos: response.data.items }, { new: true });
+            const updatedPlaylist = yield playlistVideos_1.default.findOneAndUpdate({ userEmail: session.user.email, playlistId: playlistId }, { videos: response.data.items }, { new: true });
             res.status(200).json({
                 message: "Playlist videos updated successfully",
                 data: updatedPlaylist
             });
             return;
         }
-        const newPlaylist = yield playlist_1.default.create({
-            userEmail: session.user.email,
-            playlistId: playlistId,
-            videos: response.data.items
-        });
+        const newPlaylist = yield playlistVideos_1.default.findOneAndUpdate({ userEmail: session.user.email, playlistId: playlistId }, { videos: response.data.items }, { upsert: true, new: true });
         res.status(201).json({
             message: "Playlist videos created successfully",
             data: newPlaylist
@@ -174,9 +217,7 @@ const createPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, fun
     catch (err) {
         console.error("Error managing playlist videos:", err);
         if (((_a = err.response) === null || _a === void 0 ? void 0 : _a.status) === 404) {
-            res.status(404).json({
-                error: "Invalid playlist ID"
-            });
+            res.status(404).json({ error: "Invalid playlist ID" });
             return;
         }
         res.status(500).json({

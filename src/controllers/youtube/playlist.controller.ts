@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import Playlists from "../../model/playlists";
 import { google } from 'googleapis';
+import Playlists from "../../model/playlists";
 
 export const getPlaylist = async (req: Request, res: Response) => {
     try {
@@ -15,8 +15,33 @@ export const getPlaylist = async (req: Request, res: Response) => {
         const playlists = await Playlists.findOne({userEmail : session.user.email});
 
         if(!playlists) {
-            res.status(500).json("No playlists found");
-            return;
+            const youtube = google.youtube({
+                version: 'v3',
+                auth: process.env.GOOGLE_API_KEY,
+                headers: {
+                    Authorization: `Bearer ${session.accessToken}`
+                }
+            });
+
+            // Fetch latest playlists from YouTube API
+        const response = await youtube.playlists.list({
+            part: ['snippet'],
+            mine: true,
+            maxResults: 100,
+        });
+
+
+         // Create new playlists if they don't exist
+         const newPlaylists = await Playlists.create({
+            userEmail: session.user.email,
+            etag: response.data.etag,
+            playlists: response.data.items
+        });
+            
+        res.status(201).json({
+            message: "Playlists created successfully",
+            data: newPlaylists
+        });
         } 
             
         res.status(200).json({

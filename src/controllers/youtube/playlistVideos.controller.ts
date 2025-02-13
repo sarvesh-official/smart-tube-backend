@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import Playlist from "../../model/playlist";
 import { google } from 'googleapis';
+import PlaylistVideos from "../../model/playlistVideos";
 
 export const getPlaylistVideos = async (req: Request, res: Response) => {
     try {
@@ -16,7 +16,7 @@ export const getPlaylistVideos = async (req: Request, res: Response) => {
             return;
         }
 
-        let playlist = await Playlist.findOne({ 
+        let playlist = await PlaylistVideos.findOne({ 
             userEmail: session.user.email, 
             playlistId: playlistId 
         });
@@ -33,7 +33,7 @@ export const getPlaylistVideos = async (req: Request, res: Response) => {
 
                 const response = await youtube.playlistItems.list({
                     part: ['snippet'],
-                    playlistId: playlistId,
+                    playlistId: playlistId === "WL" ? "WL" : playlistId, // Support Watch Later
                     maxResults: 50
                 });
 
@@ -45,18 +45,15 @@ export const getPlaylistVideos = async (req: Request, res: Response) => {
                 }
 
                 // Create new playlist in database
-                playlist = await Playlist.create({
+                playlist = await PlaylistVideos.create({
                     userEmail: session.user.email,
                     playlistId: playlistId,
                     videos: response.data.items
                 });
 
             } catch (error: any) {
-                // Handle YouTube API errors
                 if (error.response?.status === 404) {
-                    res.status(404).json({ 
-                        error: "Invalid playlist ID" 
-                    });
+                    res.status(404).json({ error: "Invalid playlist ID" });
                     return;
                 }
                 throw error; 
@@ -88,16 +85,83 @@ export const getAllPlaylistVideos = async (req: Request, res: Response) => {
             return;
         }
 
-        // Fetch all playlists for the user
-        const playlists = await Playlist.find({ userEmail: session.user.email });
+        let playlists = await PlaylistVideos.find({ userEmail: session.user.email });
 
+        // If no playlists are found, fetch them from YouTube
         if (!playlists || playlists.length === 0) {
-            res.status(404).json({ message: "No playlists found" });
-            return;
+            try {
+                const youtube = google.youtube({
+                    version: 'v3',
+                    auth: process.env.GOOGLE_API_KEY,
+                    headers: {
+                        Authorization: `Bearer ${session.accessToken}`
+                    }
+                });
+
+                // Fetch user's playlists
+                const response = await youtube.playlists.list({
+                    part: ['snippet'],
+                    mine: true,
+                    maxResults: 50
+                });
+
+                if (!response.data.items || response.data.items.length === 0) {
+                    res.status(404).json({ message: "No playlists found" });
+                    return;
+                }
+
+                // Store playlists in DB
+                for (const playlist of response.data.items) {
+                    await PlaylistVideos.findOneAndUpdate(
+                        { userEmail: session.user.email, playlistId: playlist.id },
+                        { $setOnInsert: { videos: [] } },
+                        { upsert: true, new: true }
+                    );
+                }
+
+                playlists = await PlaylistVideos.find({ userEmail: session.user.email });
+
+            } catch (error: any) {
+                console.error("Error fetching user's playlists:", error);
+                res.status(500).json({ message: "Error fetching playlists", error: error.message });
+                return;
+            }
         }
 
-        // Flatten all videos into a single array
-        const allVideos = playlists.flatMap(playlist => 
+        const youtube = google.youtube({
+            version: 'v3',
+            auth: process.env.GOOGLE_API_KEY,
+            headers: {
+                Authorization: `Bearer ${session.accessToken}`
+            }
+        });
+
+        // Fetch videos for playlists with no videos
+        for (const playlist of playlists) {
+            if (!playlist.videos || playlist.videos.length === 0) {
+                try {
+                    const videoResponse = await youtube.playlistItems.list({
+                        part: ['snippet'],
+                        playlistId: playlist.playlistId,
+                        maxResults: 50
+                    });
+
+                    if (videoResponse.data.items && videoResponse.data.items.length > 0) {
+                        await PlaylistVideos.findOneAndUpdate(
+                            { userEmail: session.user.email, playlistId: playlist.playlistId },
+                            { videos: videoResponse.data.items }
+                        );
+                    }
+                } catch (error) {
+                    console.warn(`Failed to fetch videos for playlist ${playlist.playlistId}`, error);
+                }
+            }
+        }
+
+        // Fetch updated playlists
+        playlists = await PlaylistVideos.find({ userEmail: session.user.email });
+
+        const allVideos = playlists.flatMap((playlist) =>
             playlist.videos.map((video: any) => ({
                 videoId: video.snippet.resourceId.videoId,
                 title: video.snippet.title,
@@ -110,7 +174,7 @@ export const getAllPlaylistVideos = async (req: Request, res: Response) => {
 
         res.status(200).json({
             message: "Fetched all videos successfully",
-            data: allVideos  // Now returning a single array of all videos
+            data: allVideos
         });
 
     } catch (err) {
@@ -121,6 +185,7 @@ export const getAllPlaylistVideos = async (req: Request, res: Response) => {
         });
     }
 };
+
 
 export const createPlaylistVideos = async (req: Request, res: Response) => {
     try {
@@ -150,17 +215,14 @@ export const createPlaylistVideos = async (req: Request, res: Response) => {
             maxResults: 50
         });
 
-        const existingPlaylist = await Playlist.findOne({ 
+        const existingPlaylist = await PlaylistVideos.findOne({ 
             userEmail: session.user.email, 
             playlistId: playlistId 
         });
 
         if (existingPlaylist) {
-            const updatedPlaylist = await Playlist.findOneAndUpdate(
-                { 
-                    userEmail: session.user.email, 
-                    playlistId: playlistId 
-                },
+            const updatedPlaylist = await PlaylistVideos.findOneAndUpdate(
+                { userEmail: session.user.email, playlistId: playlistId },
                 { videos: response.data.items },
                 { new: true }
             );
@@ -172,11 +234,11 @@ export const createPlaylistVideos = async (req: Request, res: Response) => {
             return;
         }
 
-        const newPlaylist = await Playlist.create({
-            userEmail: session.user.email,
-            playlistId: playlistId,
-            videos: response.data.items
-        });
+        const newPlaylist = await PlaylistVideos.findOneAndUpdate(
+            { userEmail: session.user.email, playlistId: playlistId },
+            { videos: response.data.items },
+            { upsert: true, new: true }
+        );
 
         res.status(201).json({
             message: "Playlist videos created successfully",
@@ -188,9 +250,7 @@ export const createPlaylistVideos = async (req: Request, res: Response) => {
         console.error("Error managing playlist videos:", err);
         
         if (err.response?.status === 404) {
-            res.status(404).json({ 
-                error: "Invalid playlist ID" 
-            });
+            res.status(404).json({ error: "Invalid playlist ID" });
             return;
         }
 
