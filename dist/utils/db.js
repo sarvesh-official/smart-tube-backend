@@ -20,6 +20,7 @@ const connectToDb = () => __awaiter(void 0, void 0, void 0, function* () {
             throw new Error("DATABASE_URL is not defined");
         }
         mongoose_1.default.connect(process.env.DATABASE_URL);
+        console.log("connect to db");
     }
     catch (error) {
         console.error('Database connection error:', error);

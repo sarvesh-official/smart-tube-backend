@@ -19,9 +19,9 @@ app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 app.use("/api/youtube", youtube_route_1.default);
 app.use("/api/user", user_route_1.default);
-// app.use("/api", (req, res) => {
-//     res.send("Working!");
-// });
+app.get("/api", (req, res) => {
+    res.send("Working!");
+});
 app.listen(port, () => {
     (0, db_1.connectToDb)();
     console.log(`Server running on port ${port}`);
