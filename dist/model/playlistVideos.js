@@ -42,5 +42,11 @@ const PlaylistSchema = new mongoose_1.default.Schema({
     playlistId: { type: String, required: true, unique: true },
     videos: [VideoSchema],
 });
+PlaylistSchema.index({
+    'videos.snippet.title': 'text',
+    'videos.snippet.description': 'text'
+}, {
+    weights: { "videos.snippet.title": 10, "videos.snippet.description": 3 }
+});
 const PlaylistVideos = mongoose_1.default.model("PlaylistVideos", PlaylistSchema);
 exports.default = PlaylistVideos;

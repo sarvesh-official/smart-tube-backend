@@ -14,4 +14,5 @@ router.post("/getAllVideos", playlistVideos_controller_1.getAllPlaylistVideos);
 router.post("/createPlaylistVideos", playlistVideos_controller_1.createPlaylistVideos);
 // Get Video
 router.post("/getVideo", video_controller_1.getVideoById);
+router.post("/search", playlistVideos_controller_1.searchVideos);
 exports.default = router;

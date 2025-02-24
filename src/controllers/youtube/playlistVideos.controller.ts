@@ -261,3 +261,77 @@ export const createPlaylistVideos = async (req: Request, res: Response) => {
         return;
     }
 }
+
+export const searchVideos = async (req : Request, res : Response) => {
+    try {
+        const { query, session } = req.body;
+
+        if (!session?.accessToken) {
+            res.status(401).json({ error: "Not authenticated" });
+            return 
+        }
+        if (!query) {
+            res.status(400).json({ error: "Search query is required" });
+            return 
+        }
+        const userEmail = session.user.email;
+
+        // **1️⃣ Find Exact Title Matches**
+        const exactMatches = await PlaylistVideos.aggregate([
+            { $match: { userEmail } },
+            { $unwind: "$videos" },
+            { 
+                $match: { 
+                    "videos.snippet.title": { 
+                        $regex: `\\b${query}\\b`,
+                        $options: "i" 
+                    }
+                } 
+            },
+            { 
+                $project: { 
+                    videoId: "$videos.snippet.resourceId.videoId",
+                    title: "$videos.snippet.title",
+                    description: "$videos.snippet.description",
+                    thumbnail: "$videos.snippet.thumbnails",
+                    playlistId: "$playlistId",
+                    publishedAt: "$videos.snippet.publishedAt",
+                    score: 1000 
+                }
+            }
+        ]);
+
+        const textMatches = await PlaylistVideos.aggregate([
+            { $match: { userEmail, $text: { $search: query } } },
+            { $unwind: "$videos" },
+            { 
+                $project: { 
+                    videoId: "$videos.snippet.resourceId.videoId",
+                    title: "$videos.snippet.title",
+                    description: "$videos.snippet.description",
+                    thumbnail: "$videos.snippet.thumbnails",
+                    playlistId: "$playlistId",
+                    publishedAt: "$videos.snippet.publishedAt",
+                    score: { $meta: "textScore" } 
+                }
+            },
+            { $sort: { score: -1 } }
+        ]);
+
+        const combinedResults = [...exactMatches, ...textMatches];
+
+        res.status(200).json({
+            message: "Search results fetched successfully",
+            data: combinedResults
+        });
+        return;
+
+    } catch (err) {
+        console.error("Error searching videos:", err);
+        res.status(500).json({
+            message: "Internal server error",
+            error: err instanceof Error ? err.message : "Unknown error"
+        });
+        return ;
+    }
+};

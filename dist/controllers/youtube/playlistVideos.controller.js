@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createPlaylistVideos = exports.getAllPlaylistVideos = exports.getPlaylistVideos = void 0;
+exports.searchVideos = exports.createPlaylistVideos = exports.getAllPlaylistVideos = exports.getPlaylistVideos = void 0;
 const googleapis_1 = require("googleapis");
 const playlistVideos_1 = __importDefault(require("../../model/playlistVideos"));
 const getPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -228,3 +228,72 @@ const createPlaylistVideos = (req, res) => __awaiter(void 0, void 0, void 0, fun
     }
 });
 exports.createPlaylistVideos = createPlaylistVideos;
+const searchVideos = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { query, session } = req.body;
+        if (!(session === null || session === void 0 ? void 0 : session.accessToken)) {
+            res.status(401).json({ error: "Not authenticated" });
+            return;
+        }
+        if (!query) {
+            res.status(400).json({ error: "Search query is required" });
+            return;
+        }
+        const userEmail = session.user.email;
+        // **1️⃣ Find Exact Title Matches**
+        const exactMatches = yield playlistVideos_1.default.aggregate([
+            { $match: { userEmail } },
+            { $unwind: "$videos" },
+            {
+                $match: {
+                    "videos.snippet.title": {
+                        $regex: `\\b${query}\\b`,
+                        $options: "i"
+                    }
+                }
+            },
+            {
+                $project: {
+                    videoId: "$videos.snippet.resourceId.videoId",
+                    title: "$videos.snippet.title",
+                    description: "$videos.snippet.description",
+                    thumbnail: "$videos.snippet.thumbnails",
+                    playlistId: "$playlistId",
+                    publishedAt: "$videos.snippet.publishedAt",
+                    score: 1000
+                }
+            }
+        ]);
+        const textMatches = yield playlistVideos_1.default.aggregate([
+            { $match: { userEmail, $text: { $search: query } } },
+            { $unwind: "$videos" },
+            {
+                $project: {
+                    videoId: "$videos.snippet.resourceId.videoId",
+                    title: "$videos.snippet.title",
+                    description: "$videos.snippet.description",
+                    thumbnail: "$videos.snippet.thumbnails",
+                    playlistId: "$playlistId",
+                    publishedAt: "$videos.snippet.publishedAt",
+                    score: { $meta: "textScore" }
+                }
+            },
+            { $sort: { score: -1 } }
+        ]);
+        const combinedResults = [...exactMatches, ...textMatches];
+        res.status(200).json({
+            message: "Search results fetched successfully",
+            data: combinedResults
+        });
+        return;
+    }
+    catch (err) {
+        console.error("Error searching videos:", err);
+        res.status(500).json({
+            message: "Internal server error",
+            error: err instanceof Error ? err.message : "Unknown error"
+        });
+        return;
+    }
+});
+exports.searchVideos = searchVideos;

@@ -42,6 +42,13 @@ const PlaylistSchema = new mongoose.Schema({
   videos: [VideoSchema],
 });
 
+PlaylistSchema.index({
+  'videos.snippet.title': 'text',
+  'videos.snippet.description': 'text'
+}, {
+  weights: { "videos.snippet.title": 10, "videos.snippet.description": 3 }
+});
+
 const PlaylistVideos = mongoose.model("PlaylistVideos", PlaylistSchema);
 
 export default PlaylistVideos;
