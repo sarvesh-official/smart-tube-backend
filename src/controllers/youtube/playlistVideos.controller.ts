@@ -276,7 +276,6 @@ export const searchVideos = async (req : Request, res : Response) => {
         }
         const userEmail = session.user.email;
 
-        // **1️⃣ Find Exact Title Matches**
         const exactMatches = await PlaylistVideos.aggregate([
             { $match: { userEmail } },
             { $unwind: "$videos" },
